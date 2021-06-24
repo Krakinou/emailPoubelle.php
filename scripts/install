@@ -48,7 +48,6 @@ ynh_script_progression --message="Storing installation settings..." --weight=1
 ynh_app_setting_set $app domain $domain
 ynh_app_setting_set $app path $path_url
 ynh_app_setting_set $app admin $admin
-ynh_app_setting_set $app is_public $is_public
 ynh_app_setting_set $app db_name $db_user
 ynh_app_setting_set $app final_path $final_path
 
@@ -143,11 +142,12 @@ ynh_add_nginx_config
 # SETUP SSOWAT
 #=================================================
 
+
+
 # Make app public if necessary
-if [ $is_public -eq 1 ]
+if [ "$is_public" -eq 1 ]
 then
-	# unprotected_uris allows SSO credentials to be passed anyway.
-	ynh_app_setting_set $app unprotected_uris "/"
+	ynh_permission_update --permission="main" --add="visitors"
 fi
 
 #=================================================
