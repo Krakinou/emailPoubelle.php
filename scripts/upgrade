@@ -5,47 +5,48 @@
 #=================================================
 # IMPORT GENERIC HELPERS
 #=================================================
+
 source _common.sh
 source /usr/share/yunohost/helpers
-
 
 #=================================================
 # LOAD SETTINGS
 #=================================================
-ynh_script_progression --message="Loading installation settings..."
+ynh_script_progression --message="Loading installation settings..." --weight=1
+
 app=$YNH_APP_INSTANCE_NAME
-domain=$(ynh_app_setting_get $app domain)
-path_url=$(ynh_app_setting_get $app path)
-is_public=$(ynh_app_setting_get --app=$app --key=is_public)
-admin=$(ynh_app_setting_get $app admin)
-final_path=$(ynh_app_setting_get $app final_path)
-db_name=$(ynh_app_setting_get $app db_name)
+
+domain=$(ynh_app_setting_get --app=$app --key=domain)
+path_url=$(ynh_app_setting_get --app=$app --key=path)
+admin=$(ynh_app_setting_get --app=$app --key=admin)
+final_path=$(ynh_app_setting_get --app=$app --key=final_path)
+db_name=$(ynh_app_setting_get --app=$app --key=db_name)
+phpversion=$(ynh_app_setting_get --app=$app --key=phpversion)
 
 #=================================================
 # CHECK VERSION
 #=================================================
 
-### This helper will compare the version of the currently installed app and the version of the upstream package.
-### $upgrade_type can have 2 different values
-### - UPGRADE_APP if the upstream app version has changed
-### - UPGRADE_PACKAGE if only the YunoHost package has changed
-### ynh_check_app_version_changed will stop the upgrade if the app is up to date.
-### UPGRADE_APP should be used to upgrade the core app only if there's an upgrade to do.
-### Not used yet in this script
 upgrade_type=$(ynh_check_app_version_changed)
+
+#=================================================
+# BACKUP BEFORE UPGRADE THEN ACTIVE TRAP
+#=================================================
+ynh_script_progression --message="Backing up the app before upgrading (may take a while)..." --weight=1
+
+# Backup the current version of the app
+ynh_backup_before_upgrade
+ynh_clean_setup () {
+  # Restore it if the upgrade fails
+  ynh_restore_upgradebackup
+}
+# Exit if an error occurs during the execution of the script
+ynh_abort_if_errors
 
 #=================================================
 # ENSURE DOWNWARD COMPATIBILITY
 #=================================================
 ynh_script_progression --message="Ensuring downward compatibility..."
-# Fix is_public as a boolean value
-if [ "$is_public" = "Yes" ]; then
-	ynh_app_setting_set --app=$app --key=is_public --value=1
-	is_public=1
-elif [ "$is_public" = "No" ]; then
-	ynh_app_setting_set --app=$app --key=is_public --value=0
-	is_public=0
-fi
 
 # If db_name doesn't exist, create it
 if [ -z "$db_name" ]; then
@@ -59,6 +60,11 @@ if [ -z "$final_path" ]; then
 	ynh_app_setting_set --app=$app --key=final_path --value=$final_path
 fi
 
+# Cleaning legacy permissions
+if ynh_legacy_permissions_exists; then
+  ynh_legacy_permissions_delete_all
+  ynh_app_setting_delete --app=$app --key=is_public
+fi
 
 #=================================================
 # BACKUP BEFORE UPGRADE THEN ACTIVE TRAP
@@ -73,93 +79,39 @@ ynh_clean_setup () {
 # Exit if an error occurs during the execution of the script
 ynh_abort_if_errors
 
+#=================================================
+# Migrate legacy permissions to new system
+#=================================================
+if ynh_legacy_permissions_exists
+then
+	ynh_legacy_permissions_delete_all
 
-#=================================================
-# CHECK THE PATH
-#=================================================
-# Normalize the URL path syntax
-path_url=$(ynh_normalize_url_path $path_url)
-
-
-#=================================================
-#check for matlink's version - DEPRECATED - uninstall & reinstall
-#=================================================
-#deprecated - not maintained for more than a year...
-#cat /etc/yunohost/apps/$app/status.json | grep "matlink"
-#if [[ $?==0 ]]; then
-  #add missing info in settings
-#  final_path=/var/www/$app
-#  db_name=emailPoubelle
-#  ynh_app_setting_set $app db_name $db_name
-#  ynh_app_setting_set $app final_path $final_path
-  #install geoip dependencies
-#  ynh_install_app_dependencies $pkg_dependencies
-  #install locale packages
-#  for i in $lang ; do
-#    ynh_replace_string "# $i" "$i" /etc/locale.gen
-#  done
-#  locale-gen
-  #change folder locale => lang as per src2.0
-#  rm -rf $final_path/locale
-#  mkdir -p $final_path/lang
-  #add new index.php
-#  cp ../conf/index_source.php $final_path/www/index.php
-  #switch from previous (modified) conf.php to new one (emailpoubelle original)
-#  cp ../src/conf-dist.php $final_path/conf-dist.new.php
-  #insert domain in line 24, DB in line 31, DBUSER in line 32, etc.
-#  rep=$(cat $final_path/conf.php | grep "^[^//]" | grep "define('DOMAIN',")
-#  sed -i "24s/.*/${rep}/" $final_path/conf-dist.new.php
-#  rep=$(cat $final_path/conf.php | grep "^[^//]" | grep "define('DB',")
-#  sed -i "31s/.*/${rep}/" $final_path/conf-dist.new.php
-#  rep=$(cat $final_path/conf.php | grep "^[^//]" | grep "define('DBUSER',")
-#  sed -i "32s/.*/${rep}/" $final_path/conf-dist.new.php
-#  rep=$(cat $final_path/conf.php | grep "^[^//]" | grep "define('DBPASS',")
-#  sed -i "33s/.*/${rep}/" $final_path/conf-dist.new.php
-  #replace old conf and process with install command
-#  mv $final_path/conf.php $final_path/conf.php.old 
-#  mv $final_path/conf-dist.new.php $final_path/conf.php
-#  ynh_replace_string "define('DB', 'sqlite:'" "//define('DB', 'sqlite:'" $final_path/conf.php
-#  ynh_replace_string "define('ALIASLIMITBYMAIL" "//define('ALIASLIMITBYMAIL" $final_path/conf.php
-#  #setting conf file not world-readable (dude, there is a plain-text password !)
-#  sudo chmod o-r $final_path/conf.php
-#fi
+	ynh_app_setting_delete --app=$app --key=is_public
+fi
 
 #=================================================
 # STANDARD UPGRADE STEPS
 #=================================================
 # NGINX CONFIGURATION
 #=================================================
-ynh_script_progression --message="Upgrading nginx web server configuration..."
+ynh_script_progression --message="Upgrading NGINX web server configuration..." --weight=1
 
-ynh_backup_if_checksum_is_different "/etc/nginx/conf.d/$domain.d/$app.conf"
-
-# Create a dedicated nginx config
+# Create a dedicated NGINX config
 ynh_add_nginx_config
 
 #=================================================
-# UPGRADE DEPENDENCIES
+# PHP-FPM CONFIGURATION
 #=================================================
-ynh_script_progression --message="Upgrading dependencies..."
-ynh_install_app_dependencies $pkg_dependencies
+ynh_script_progression --message="Upgrading PHP-FPM configuration..." --weight=2
 
-#=================================================
-#UPDATE SETTINGS
-#=================================================
-
-#mysqlpwd setting was implemented in ynh2 - check if saved and if not implement
-db_pass=$(ynh_app_setting_get $app mysqlpwd)
-if [ -z $db_pass ]; then
-#c'est moche mais ça fera bien l'affaire - en deux lignes sinon pb en fonction du type de shell
-  t=$(cat /var/www/$app/conf.php | grep DBPASS)
-  db_pass=${t:26:24}
-  ynh_app_setting_set $app mysqlpwd $db_pass
-fi
+# Create a dedicated PHP-FPM config
+ynh_add_fpm_config --package="$extra_php_dependencies"
 
 #=================================================
 #INSTALL SOURCES
 #===============================================
-
 ynh_script_progression --message="Upgrading source files..."
+
 # Download, check integrity, uncompress and patch the source from app.src
 ynh_setup_source "$final_path"
 cp ../conf/index_source.php $final_path/www/index.php
@@ -170,14 +122,12 @@ fi
 
 #Temporaire - mettre en config
 if [ ! -e $final_path/lang/fr_FR ]; then
-ln -s $final_path/lang/fr $final_path/lang/fr_FR
+  ln -s $final_path/lang/fr $final_path/lang/fr_FR
 fi
 if [ ! -e $final_path/lang/it_IT ]; then
-ln -s $final_path/lang/it $final_path/lang/it_IT
+  ln -s $final_path/lang/it $final_path/lang/it_IT
 fi
 
-#setting postfix to use virtual aliases file
-# Add postfix configuration hook and regen postfix conf
 #setting postfix to use virtual aliases file
 # Add postfix configuration hook and regen postfix conf
 cp -R ../sources/hooks/conf_regen/98-postfix_emailpoubelle /usr/share/yunohost/hooks/conf_regen/
@@ -191,12 +141,11 @@ yunohost tools regen-conf postfix -f
 chown -R www-data:www-data $final_path
 chown root:root /etc/cron.d/$app
 
-
 #=================================================
 # RELOAD SERVICES
 #=================================================
 ynh_script_progression --message="Starting a systemd service..."
-ynh_systemd_action --service_name=php7.0-fpm --action=restart
+ynh_systemd_action --service_name=php$phpversion-fpm --action=reload
 
 ynh_script_progression --message="Reloading nginx web server..."
 ynh_systemd_action --service_name=nginx --action=reload
@@ -204,5 +153,8 @@ ynh_systemd_action --service_name=nginx --action=reload
 ynh_script_progression --message="Reloading postfix..."
 ynh_systemd_action --service_name=postfix --action=reload
 
-ynh_script_progression --message="Upgrade of $app completed" --last
+#=================================================
+# END OF SCRIPT
+#=================================================
 
+ynh_script_progression --message="Upgrade of $app completed" --last

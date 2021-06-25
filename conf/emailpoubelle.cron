@@ -1,1 +1,1 @@
-0 */2 * * * www-data cd $final_path/www/; /usr/bin/php index.php > /dev/null 2>&1
+0 */2 * * * www-data cd __FINALPATH__/www/; /usr/bin/php index.php > /dev/null 2>&1

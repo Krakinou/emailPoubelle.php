@@ -21,8 +21,6 @@ db_name=$(ynh_app_setting_get --app=$app --key=db_name)
 db_user=$db_name
 final_path=$(ynh_app_setting_get --app=$app --key=final_path)
 
-
-
 #=================================================
 # REMOVE THE MYSQL DATABASE
 #=================================================
@@ -30,17 +28,6 @@ ynh_script_progression --message="Removing the MySQL database..."
 
 # Remove a database if it exists, along with the associated user
 ynh_mysql_remove_db --db_user=$db_user --db_name=$db_name
-
-
-
-#=================================================
-# REMOVE DEPENDENCIES
-#=================================================
-ynh_script_progression --message="Removing dependencies..."
-
-# Remove metapackage and its dependencies
-ynh_remove_app_dependencies
-
 
 #=================================================
 # REMOVE APP MAIN DIR
@@ -50,7 +37,6 @@ ynh_script_progression --message="Removing app main directory..."
 # Remove the app directory securely
 ynh_secure_remove --file="$final_path"
 
-
 #=================================================
 # REMOVE NGINX CONFIGURATION
 #=================================================
@@ -59,6 +45,13 @@ ynh_script_progression --message="Removing nginx web server configuration..."
 # Remove the dedicated nginx config
 ynh_remove_nginx_config
 
+#=================================================
+# REMOVE PHP-FPM CONFIGURATION
+#=================================================
+ynh_script_progression --message="Removing PHP-FPM configuration..." --weight=3
+
+# Remove the dedicated PHP-FPM config
+ynh_remove_fpm_config
 
 #=================================================
 # SPECIFIC REMOVE
@@ -66,11 +59,13 @@ ynh_remove_nginx_config
 # REMOVE THE CRON FILE
 #=================================================
 ynh_script_progression --message="Removing cron job and aliases..."
+
 ynh_secure_remove --file="/etc/cron.d/$app"
 
 #=================================================
 #removing aliases
 #=================================================
+
 ynh_replace_string "devnull:/dev/null" "" /etc/aliases
 newaliases
 
