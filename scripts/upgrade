@@ -16,7 +16,6 @@ ynh_script_progression --message="Loading installation settings..."
 app=$YNH_APP_INSTANCE_NAME
 domain=$(ynh_app_setting_get $app domain)
 path_url=$(ynh_app_setting_get $app path)
-is_public=$(ynh_app_setting_get --app=$app --key=is_public)
 admin=$(ynh_app_setting_get $app admin)
 final_path=$(ynh_app_setting_get $app final_path)
 db_name=$(ynh_app_setting_get $app db_name)
@@ -39,13 +38,6 @@ upgrade_type=$(ynh_check_app_version_changed)
 #=================================================
 ynh_script_progression --message="Ensuring downward compatibility..."
 # Fix is_public as a boolean value
-if [ "$is_public" = "Yes" ]; then
-	ynh_app_setting_set --app=$app --key=is_public --value=1
-	is_public=1
-elif [ "$is_public" = "No" ]; then
-	ynh_app_setting_set --app=$app --key=is_public --value=0
-	is_public=0
-fi
 
 # If db_name doesn't exist, create it
 if [ -z "$db_name" ]; then
@@ -73,13 +65,20 @@ ynh_clean_setup () {
 # Exit if an error occurs during the execution of the script
 ynh_abort_if_errors
 
+#=================================================
+# Migrate legacy permissions to new system
+#=================================================
+if ynh_legacy_permissions_exists
+then
+	ynh_legacy_permissions_delete_all
+
+	ynh_app_setting_delete --app=$app --key=is_public
+fi
 
 #=================================================
 # CHECK THE PATH
 #=================================================
 # Normalize the URL path syntax
-path_url=$(ynh_normalize_url_path $path_url)
-
 
 #=================================================
 #check for matlink's version - DEPRECATED - uninstall & reinstall
@@ -196,7 +195,7 @@ chown root:root /etc/cron.d/$app
 # RELOAD SERVICES
 #=================================================
 ynh_script_progression --message="Starting a systemd service..."
-ynh_systemd_action --service_name=php7.0-fpm --action=restart
+ynh_systemd_action --service_name=php$phpversion-fpm --action=restart
 
 ynh_script_progression --message="Reloading nginx web server..."
 ynh_systemd_action --service_name=nginx --action=reload
@@ -205,4 +204,3 @@ ynh_script_progression --message="Reloading postfix..."
 ynh_systemd_action --service_name=postfix --action=reload
 
 ynh_script_progression --message="Upgrade of $app completed" --last
-
